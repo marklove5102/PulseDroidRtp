@@ -149,14 +149,14 @@ void RtpReceiveThread::Restart() {
     is_idle_ = false;
     socket_.close();
     socket_ = asio::ip::udp::socket(io_);
-    auto local_address = asio::ip::address::from_string(ip_);
+    auto local_address = asio::ip::make_address(ip_);
     bool is_mcast = local_address.is_multicast();
     auto listen_address = local_address;
     if (is_mcast) {
         if (local_address.is_v4()) {
-            listen_address = asio::ip::address::from_string("0.0.0.0");
+            listen_address = asio::ip::make_address("0.0.0.0");
         } else if (local_address.is_v6()) {
-            listen_address = asio::ip::address::from_string("::");
+            listen_address = asio::ip::make_address("::");
         }
     }
     LOGI("Listening on %s %s:%u", ip_.c_str(), listen_address.to_string().c_str(), port_);
@@ -188,7 +188,7 @@ void RtpReceiveThread::StartReceive() {
                 }
                 HandleReceive(bytes_recvd);
             });
-    idle_check_timer_.expires_from_now(std::chrono::milliseconds(kIdleRecvMs));
+    idle_check_timer_.expires_after(std::chrono::milliseconds(kIdleRecvMs));
     idle_check_timer_.async_wait([&](const asio::error_code &error) {
         if (error) {
             return;
@@ -210,7 +210,17 @@ void RtpReceiveThread::HandleReceive(size_t bytes_recvd) {
     auto vec = pkt_buffer_.RefTailForWrite();
     vec->resize((bytes_recvd - kRtpHeader) / kSampleSize);
     auto buffer = vec->data();
-    std::memcpy(buffer, data_.data() + kRtpHeader, bytes_recvd - kRtpHeader);
+    
+    // 正确处理大端格式的PCM数据
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(data_.data() + kRtpHeader);
+    int16_t* dst = buffer;
+    size_t num_samples = (bytes_recvd - kRtpHeader) / kSampleSize;
+    
+    for (size_t i = 0; i < num_samples; ++i) {
+        // 大端转小端
+        dst[i] = (src[0] << 8) | src[1];
+        src += 2;
+    }
     if (!pkt_buffer_.NextTail()) {
         // LOGE("Packet Buffer Full");
     }
@@ -290,8 +300,8 @@ PulseRtpOboeEngine::Start(int latency_option, const std::string &ip, uint16_t po
     builder.setSharingMode(oboe::SharingMode::Exclusive);
     builder.setFormat(oboe::AudioFormat::I16);
     builder.setChannelCount(int(num_output_channel_));
-    // Always use default sample rate
-    // builder.setSampleRate(48000);
+    // 强制使用48000Hz采样率，与Windows端保持一致
+    builder.setSampleRate(48000);
     builder.setCallback(this);
     oboe::Result result = builder.openManagedStream(managedStream_);
     if (result != oboe::Result::OK) {
@@ -379,7 +389,7 @@ PulseRtpOboeEngine::onAudioReady(oboe::AudioStream *audioStream, void *audioData
                 state_ = State::Depleted;
                 // LOGE("No more data: %zu/%d", num_sample, numFrames);
             } else {
-                last_samples_[j] = ntohs((*buffer_)[offset_]);
+                last_samples_[j] = (*buffer_)[offset_];
                 ++offset_;
             }
             if (mask_channel & 1U) {
