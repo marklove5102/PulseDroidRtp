@@ -10,3 +10,4 @@ SHA-1: bd500f0a018db9a845ebaaed5c0318343ae9f497
 oboe
 SHA-1: d25993c5dbe4750cd8d51a3729b6def6f9d20d77
 * Copy in prefab build scripts and bump version to 1.4.3
+会有断言  为引用 声明问题 自己手工修复吧！
