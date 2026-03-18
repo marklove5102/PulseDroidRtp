@@ -1,9 +1,15 @@
-代码修改 使用的 字节CN auto 模式
-只支持 win 必须使用 AudioPeeperConsole 
-声音获取 使用的下面的方法。
-https://github.com/luqiming666/AudioPeeperConsole/blob/main/AudioPeeperConsole.cpp
+#代码修改 使用的 字节CN auto 模式
+#只支持 win 必须使用 AudioPeeperConsole 
+````
+启用 宏
+WIN32_LEAN_AND_MEAN
+添加 附加依赖项
+ole32.lib;strmiids.lib;ws2_32.lib;dmoguids.lib;oleaut32.lib;
+````
+#声音获取 使用的下面的方法。
+#https://github.com/luqiming666/AudioPeeperConsole/blob/main/AudioPeeperConsole.cpp
 
-android-studio-panda2-windows.exe 1.8
+#android-studio-panda2-windows.exe 1.8
 
 #ASIO
 SHA-1: bd500f0a018db9a845ebaaed5c0318343ae9f497
