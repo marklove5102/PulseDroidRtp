@@ -14,7 +14,7 @@ add_subdirectory(${OBOE_DIR} ${BUILD_DIR}/oboe-bin)
 
 # Include the Oboe headers and shared sample code
 include_directories(${OBOE_DIR}/include ${OBOE_DIR}/samples/shared)
-include_directories(${VENDOR_DIR}/asio/asio/include)
+include_directories(${VENDOR_DIR}/asio/include)
 
 # Debug utilities
 set(DEBUG_UTILS_PATH "${OBOE_DIR}/samples/debug-utils")
