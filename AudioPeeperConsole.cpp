@@ -1,6 +1,3 @@
-// AudioPeeperConsole.cpp : 系统音频捕获 + RTP 组播广播（修复版）
-// 纯 Windows SDK: WASAPI Loopback + Winsock
-
 #include <Windows.h>
 #include <Mmdeviceapi.h>
 #include <Audioclient.h>
@@ -16,7 +13,9 @@
                 { (punk)->Release(); (punk) = nullptr; }
 
 // ========== RTP 配置 ==========
-const char* MULTICAST_ADDR = "192.168.2.3";
+// ⭐ 修改：使用 239.255.0.1（管理员范围多播地址，兼容性更好）
+// 224.0.0.1 是"所有主机组"保留地址，发送可能受系统/驱动限制
+const char* MULTICAST_ADDR = "224.0.0.1";
 const int PORT = 1900;
 const int PAYLOAD_TYPE = 10;
 const UINT32 SSRC = 0x12345678;
@@ -67,7 +66,17 @@ bool SendRTP(BYTE* pcmData, UINT32 pcmBytes) {
             (sockaddr*)&addr, sizeof(addr));
 
         if (result == SOCKET_ERROR) {
-            std::cerr << "❌ sendto 失败: " << WSAGetLastError() << "\n";
+            int err = WSAGetLastError();
+            std::cerr << "❌ sendto 失败: " << err;
+            switch (err) {
+            case WSAENETDOWN: std::cerr << " (网络不可用)"; break;
+            case WSAEACCES:   std::cerr << " (权限/防火墙阻止)"; break;
+            case WSAEFAULT:   std::cerr << " (地址参数错误)"; break;
+            case WSAEMSGSIZE: std::cerr << " (包超过MTU)"; break;
+            case WSAENETUNREACH: std::cerr << " (网络不可达)"; break;
+            default: break;
+            }
+            std::cerr << "\n";
             return false;
         }
 
@@ -115,15 +124,47 @@ int main()
 
     g_rtpSocket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (g_rtpSocket == INVALID_SOCKET) {
-        std::cerr << "❌ socket 创建失败\n";
+        std::cerr << "❌ socket 创建失败: " << WSAGetLastError() << "\n";
         WSACleanup();
         return 1;
     }
 
-    int ttl = 1;
-    setsockopt(g_rtpSocket, IPPROTO_IP, IP_MULTICAST_TTL, (char*)&ttl, sizeof(ttl));
+    // ⭐ 新增：多播 Socket 配置（解决 224.0.0.1 发送受限问题）
 
-    std::cout << "✅ RTP Socket 已初始化\n";
+    // 1. 设置 TTL（Time To Live）：2 表示可跨子网，1 表示仅限本地链路
+    int ttl = 2;
+    if (setsockopt(g_rtpSocket, IPPROTO_IP, IP_MULTICAST_TTL,
+        (char*)&ttl, sizeof(ttl)) == SOCKET_ERROR) {
+        std::cerr << "⚠️ 设置 IP_MULTICAST_TTL 失败: " << WSAGetLastError() << "\n";
+    }
+
+    // 2. 允许接收自己发送的多播包（调试时开启，生产环境可设为 FALSE）
+    BOOL loopback = TRUE;
+    if (setsockopt(g_rtpSocket, IPPROTO_IP, IP_MULTICAST_LOOP,
+        (char*)&loopback, sizeof(loopback)) == SOCKET_ERROR) {
+        std::cerr << "⚠️ 设置 IP_MULTICAST_LOOP 失败: " << WSAGetLastError() << "\n";
+    }
+
+    // 3. 指定多播发送接口（多网卡环境必需，INADDR_ANY 让系统自动选择默认接口）
+    struct in_addr localInterface;
+    localInterface.s_addr = htonl(INADDR_ANY);  // 使用默认网络接口
+    // 如需指定具体网卡，取消下面注释并修改IP：
+    // localInterface.s_addr = inet_addr("192.168.1.100");
+    if (setsockopt(g_rtpSocket, IPPROTO_IP, IP_MULTICAST_IF,
+        (char*)&localInterface, sizeof(localInterface)) == SOCKET_ERROR) {
+        std::cerr << "⚠️ 设置 IP_MULTICAST_IF 失败: " << WSAGetLastError() << "\n";
+    }
+
+    // 4. ⭐ 可选但推荐：bind 到本地地址（某些网卡驱动要求先 bind 才能发送多播）
+    sockaddr_in localAddr = {};
+    localAddr.sin_family = AF_INET;
+    localAddr.sin_addr.s_addr = htonl(INADDR_ANY);  // 绑定所有本地接口
+    localAddr.sin_port = htons(0);  // 0 表示让系统自动分配端口
+    if (bind(g_rtpSocket, (sockaddr*)&localAddr, sizeof(localAddr)) == SOCKET_ERROR) {
+        std::cerr << "⚠️ bind 本地地址失败: " << WSAGetLastError() << "（可忽略，继续尝试发送）\n";
+    }
+
+    std::cout << "✅ RTP Socket 已初始化（多播配置完成）\n";
     std::cout << "📡 目标: " << MULTICAST_ADDR << ":" << PORT << "\n\n";
 
     // 初始化 COM
