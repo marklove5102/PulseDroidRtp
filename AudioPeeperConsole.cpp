@@ -1,3 +1,7 @@
+#pragma comment(lib, "ws2_32.lib")
+
+#define WIN32_LEAN_AND_MEAN   // 排除不相干的 API，包括 winsock.h
+
 #include <Windows.h>
 #include <Mmdeviceapi.h>
 #include <Audioclient.h>
